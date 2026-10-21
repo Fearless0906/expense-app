@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
  * Where Django runs. On a real phone this must be your PC's LAN IP, not localhost.
  * Set it in mobile/.env:  EXPO_PUBLIC_API_URL=http://192.168.1.10:8000
  */
-export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.2.110:8000').replace(/\/$/, '');
+export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://fearless09.pythonanywhere.com').replace(/\/$/, '');
 
 const TOKEN_KEY = 'auth_token';
 let cachedToken: string | null | undefined;
