@@ -9,7 +9,7 @@ import { Text } from '@/components/ui/text';
 import { passwordChecks } from '@/lib/auth';
 
 import { Card, cx, Muted, Screen, useRevealOnFocus } from './components';
-import { LogoMark } from './Logo';
+import { Logo } from './Logo';
 import { colors } from './theme';
 
 /** Brand mark, big title and subtitle, then the form in a card, then the footer links. */
@@ -27,7 +27,7 @@ export function AuthScreen({
   return (
     <Screen>
       <View className="gap-5 pb-1 pt-4">
-        <LogoMark size={56} />
+        <Logo size={44} />
         <View className="gap-2">
           <Text role="heading" className="text-3xl font-extrabold tracking-tight">
             {title}

@@ -11,7 +11,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#1B2E27",
+        "backgroundColor": "#EDF1EE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -37,7 +37,8 @@
         {
           "photosPermission": "Hati uses your photos so you can pick a profile picture."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "scheme": "hati",
     "extra": {
