@@ -1,81 +1,124 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
-import { formatDay, formatTime, peso, toCents } from '@/lib/money';
+import { Text } from '@/components/ui/text';
+import { peso, toCents } from '@/lib/money';
+import { mediaUrl } from '@/lib/media';
 import {
   addMember,
-  deleteEvent,
-  deleteExpense,
   getGroup,
-  listEvents,
+  getMyUsername,
+  inviteStatus,
+  isMemberMe,
   listExpenses,
   listMembers,
   Member,
   removeMember,
+  sameUser,
   setCreditLimit,
+  sharesOf,
   summarize,
 } from '@/lib/repo';
 import { useQuery } from '@/lib/useQuery';
-import { Button, Card, CreditGauge, ErrorText, Field, Loading, Money, Muted, Screen, SectionTitle, SyncBanner } from '@/ui/components';
-import { colors, personColors, radius, space } from '@/ui/theme';
+import {
+  Avatar,
+  Button,
+  Card,
+  CreditGauge,
+  cx,
+  EmptyState,
+  IconName,
+  IconWell,
+  ListCard,
+  Loading,
+  Money,
+  Muted,
+  Screen,
+  SectionTitle,
+  SyncBanner,
+  TextLink,
+} from '@/ui/components';
+import { confirm, prompt } from '@/ui/dialog';
+import { ExpenseRow, onDelete, peopleFrom } from '@/ui/rows';
+import { colors, personColorMap } from '@/ui/theme';
 
-/** Stable color per person: based on their place in the (alphabetical) member list. */
-function colorMap(members: Member[]) {
-  return new Map(members.map((m, i) => [m.id, personColors[i % personColors.length]]));
-}
+/** How many expenses the budget page previews; the Expenses tab shows the rest. */
+const PREVIEW_EXPENSES = 3;
 
 export default function GroupScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const group = useQuery(() => getGroup(id), [id]);
   const members = useQuery(() => listMembers(id), [id]);
-  const events = useQuery(() => listEvents(id), [id]);
   const expenses = useQuery(() => listExpenses(id), [id]);
-  const [newMember, setNewMember] = useState('');
-  const [limitDraft, setLimitDraft] = useState<string | null>(null);
-  const [limitError, setLimitError] = useState<string>();
+  const me = useQuery(getMyUsername, []);
 
-  if (group === undefined || !members || !events || !expenses) return <Loading />;
+  if (group === undefined || !members || !expenses || me === undefined) return <Loading />;
   if (group === null) {
     return (
       <Screen>
-        <Muted>This budget was deleted.</Muted>
+        <EmptyState icon="trash-outline" title="This budget was deleted" />
       </Screen>
     );
   }
 
   const { limit, spent, remaining, usedBy } = summarize(group, expenses);
+  const over = remaining < 0;
   const active = members.filter((m) => !m.deleted);
-  const colorOf = colorMap(members);
-  const nameOf = (memberId: string) => members.find((m) => m.id === memberId)?.name ?? 'Removed person';
-  const eventTitle = (eventId: string | null) => events.find((e) => e.id === eventId)?.title;
+  const colorOf = personColorMap(members);
+  const meMember = active.find((m) => isMemberMe(m, me));
+  const isOwner = sameUser(group.owner_username, me);
+  const ownerMember = active.find(
+    (m) => sameUser(m.joined_username, group.owner_username) || (isOwner && m.id === meMember?.id),
+  );
+  const myShare = meMember ? sharesOf(meMember.id, expenses) : null;
+  const nameOf = (memberId: string) => {
+    const name = members.find((m) => m.id === memberId)?.name ?? 'Removed person';
+    return memberId === meMember?.id ? `${name} (you)` : name;
+  };
+  const openPerson = (memberId: string) =>
+    router.push({ pathname: '/group/[id]/person/[memberId]', params: { id, memberId } });
+  const people = peopleFrom(members, me);
   const segments = members
-    .map((m) => ({ key: m.id, value: usedBy.get(m.id) ?? 0, color: colorOf.get(m.id) ?? colors.muted }))
-    .filter((s) => s.value > 0);
-  const now = new Date().toISOString();
-  const upcoming = events.filter((e) => e.starts_at >= now);
-  const past = events.filter((e) => e.starts_at < now).reverse();
+    .map((m) => ({ key: m.id, value: usedBy.get(m.id) ?? 0, color: colorOf.get(m.id) ?? colors.onInkMuted }))
+    .filter((s) => s.value > 0)
+    .sort((a, b) => b.value - a.value);
+  const pctUsed = limit > 0 ? Math.round((spent / limit) * 100) : 0;
 
-  async function saveLimit() {
-    const cents = toCents(limitDraft ?? '');
-    if (cents === null) return setLimitError('Enter an amount like 10000 or 10,000.50.');
+  async function changeLimit() {
+    const value = await prompt({
+      title: 'Change credit limit',
+      message: `${peso(spent)} has been spent so far in this budget.`,
+      label: 'Credit limit (₱)',
+      initial: (limit / 100).toFixed(2).replace(/\.00$/, ''),
+      placeholder: '10,000',
+      keyboardType: 'decimal-pad',
+      confirmLabel: 'Save limit',
+      validate: (v) => (toCents(v) === null ? 'Enter an amount like 10000 or 10,000.50.' : null),
+    });
+    if (value === null) return;
+    const cents = toCents(value)!;
+    if (cents < spent) {
+      const ok = await confirm({
+        title: "That's less than what's spent",
+        message: `${peso(spent)} has already been spent, so the budget will be ${peso(spent - cents)} over its new limit. Save anyway?`,
+        confirmLabel: 'Save anyway',
+      });
+      if (!ok) return;
+    }
     await setCreditLimit(group!.id, cents);
-    setLimitDraft(null);
-    setLimitError(undefined);
   }
 
-  async function onAddMember() {
-    const name = newMember.trim();
-    if (!name) return;
-    await addMember(id, name);
-    setNewMember('');
-  }
-
-  function confirmRemoveMember(m: Member) {
-    Alert.alert(`Remove ${m.name}?`, 'Their share in past expenses stays as it is.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => removeMember(m.id) },
-    ]);
+  async function confirmRemoveMember(m: Member) {
+    const ok = await confirm({
+      title: `Remove ${m.name}?`,
+      message: m.joined_username
+        ? `Their share in past expenses stays as it is, and @${m.joined_username} loses access to this budget.`
+        : 'Their share in past expenses stays as it is.',
+      confirmLabel: 'Remove',
+      destructive: true,
+    });
+    if (ok) await removeMember(m.id);
   }
 
   return (
@@ -83,188 +126,167 @@ export default function GroupScreen() {
       <Stack.Screen options={{ title: group.name }} />
       <SyncBanner />
 
-      <Card>
-        <Muted>{remaining < 0 ? 'Over the credit limit by' : 'Credit left'}</Muted>
-        <Money cents={Math.abs(remaining)} style={[styles.remaining, remaining < 0 && { color: colors.over }]} />
-        <CreditGauge limit={limit} segments={segments} />
-        <Muted>
-          {peso(spent)} spent of {peso(limit)} credit limit
-        </Muted>
+      {/* Hero: the answer to "how much credit is left?" */}
+      <View className="gap-5 rounded-3xl bg-primary p-6">
+        <View className="flex-row items-start justify-between gap-3">
+          <View className="flex-1 gap-1">
+            <Text className="text-sm font-medium text-on-ink-muted">
+              {over ? 'Over the credit limit by' : 'Credit left'}
+            </Text>
+            <Money
+              cents={Math.abs(remaining)}
+              className={cx('text-4xl font-extrabold tracking-tight', over ? 'text-on-ink-over' : 'text-on-ink')}
+            />
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Change credit limit"
+            accessibilityHint="Opens a dialog to set a new limit"
+            onPress={changeLimit}
+            hitSlop={6}
+            className="min-h-9 flex-row items-center gap-1.5 rounded-full bg-hero-track px-3 active:opacity-70"
+          >
+            <Ionicons name="pencil" size={14} color={colors.onInk} />
+            <Text className="text-xs font-semibold text-on-ink">Limit</Text>
+          </Pressable>
+        </View>
+
+        <View className="gap-2">
+          <CreditGauge limit={limit} segments={segments} tone="dark" />
+          <View className="flex-row justify-between">
+            <Text className="text-xs font-medium text-on-ink-muted">
+              {peso(spent)} spent{limit > 0 ? ` · ${pctUsed}%` : ''}
+            </Text>
+            <Text className="text-xs font-medium text-on-ink-muted">{peso(limit)} limit</Text>
+          </View>
+        </View>
 
         {segments.length > 0 && (
-          <View style={{ gap: space(2) }}>
+          <View className="gap-3 border-t border-hero-track pt-4">
             {segments.map((s) => (
-              <View key={s.key} style={styles.legendRow}>
-                <View style={[styles.dot, { backgroundColor: s.color }]} />
-                <Text style={styles.legendName}>{nameOf(s.key)}</Text>
-                <Money cents={s.value} style={{ fontSize: 14 }} />
+              <View key={s.key} className="flex-row items-center gap-3">
+                <Avatar name={nameOf(s.key)} color={s.color} uri={people.avatarOf(s.key)} size={28} />
+                <Text className="flex-1 text-sm text-on-ink">{nameOf(s.key)}</Text>
+                <Money cents={s.value} className="text-sm text-on-ink" />
               </View>
             ))}
           </View>
         )}
+      </View>
 
-        {limitDraft === null ? (
-          <Pressable onPress={() => setLimitDraft(String(limit / 100))} hitSlop={8}>
-            <Text style={styles.link}>Change credit limit</Text>
-          </Pressable>
-        ) : (
-          <View style={{ gap: space(2) }}>
-            <Field label="New credit limit (₱)" value={limitDraft} onChangeText={setLimitDraft} keyboardType="decimal-pad" />
-            <ErrorText>{limitError}</ErrorText>
-            <View style={{ flexDirection: 'row', gap: space(2) }}>
-              <View style={{ flex: 1 }}>
-                <Button title="Save limit" onPress={saveLimit} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Button title="Cancel" variant="secondary" onPress={() => setLimitDraft(null)} />
-              </View>
+      {myShare ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Your share, ${peso(myShare.total)}, from ${myShare.items.length} expenses`}
+          accessibilityHint="Shows each expense you owe for"
+          onPress={() => openPerson(meMember!.id)}
+          className="active:opacity-80"
+        >
+          <Card className="flex-row items-center">
+            <IconWell name="person-outline" tone="good" />
+            <View className="flex-1 gap-0.5">
+              <Text className="text-sm font-medium text-muted-foreground">Your share</Text>
+              <Money cents={myShare.total} className="text-2xl font-extrabold tracking-tight text-foreground" />
+              <Text className="text-xs text-muted-foreground">
+                From {myShare.items.length} expense{myShare.items.length === 1 ? '' : 's'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+          </Card>
+        </Pressable>
+      ) : isOwner && me ? (
+        <Card>
+          <View className="flex-row items-center gap-3">
+            <IconWell name="person-add-outline" tone="good" />
+            <View className="flex-1 gap-0.5">
+              <Text className="text-base font-semibold">You're not in the split yet</Text>
+              <Muted>Add yourself so the people you invite see you, and you see your own share.</Muted>
             </View>
           </View>
-        )}
-      </Card>
+          <Button title="Add me" icon="person-add-outline" variant="secondary" onPress={() => addMember(id, me, me)} />
+          {active.length > 0 && (
+            <Muted>Already listed under another name? Tap it under People and choose “This is me”.</Muted>
+          )}
+        </Card>
+      ) : null}
 
       <Button
         title="Add expense"
+        icon="add"
         onPress={() => router.push(`/group/${id}/new-expense`)}
         disabled={active.length === 0}
       />
       {active.length === 0 && <Muted>Add the people in this budget first, so expenses can be split between them.</Muted>}
 
-      <SectionTitle>People</SectionTitle>
-      <View style={styles.chips}>
-        {active.map((m) => (
-          <Pressable key={m.id} onLongPress={() => confirmRemoveMember(m)} style={styles.chip}>
-            <View style={[styles.dot, { backgroundColor: colorOf.get(m.id) }]} />
-            <Text style={{ color: colors.ink }}>{m.name}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'flex-end' }}>
-        <View style={{ flex: 1 }}>
-          <Field
-            label="Add a person"
-            value={newMember}
-            onChangeText={setNewMember}
-            placeholder="Name"
-            onSubmitEditing={onAddMember}
-            returnKeyType="done"
-          />
-        </View>
-        <Button title="Add" variant="secondary" onPress={onAddMember} disabled={!newMember.trim()} />
-      </View>
-      {active.length > 0 && <Muted>Press and hold a name to remove that person.</Muted>}
-
       <SectionTitle
         action={
-          <Pressable onPress={() => router.push(`/group/${id}/new-event`)} hitSlop={8}>
-            <Text style={styles.link}>Schedule event</Text>
-          </Pressable>
+          <TextLink title="Add" icon="person-add-outline" onPress={() => router.push(`/group/${id}/new-person`)} />
         }
       >
-        Events
+        People
       </SectionTitle>
-      {events.length === 0 && <Muted>No events yet. Schedule one to group expenses by activity and date.</Muted>}
-      {[...upcoming, ...past].map((e) => {
-        const total = expenses.filter((x) => x.event_id === e.id).reduce((a, x) => a + x.amount_cents, 0);
-        const isPast = e.starts_at < now;
-        return (
-          <Pressable
-            key={e.id}
-            onPress={() => router.push({ pathname: '/group/[id]/new-expense', params: { id, eventId: e.id } })}
-            onLongPress={() =>
-              Alert.alert(`Delete “${e.title}”?`, 'Expenses linked to it are kept.', [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Delete', style: 'destructive', onPress: () => deleteEvent(e.id) },
-              ])
-            }
-          >
-            <Card style={[styles.eventCard, isPast && { opacity: 0.6 }]}>
-              <View style={styles.dateBlock}>
-                <Text style={styles.dateMonth}>{new Date(e.starts_at).toLocaleDateString('en-PH', { month: 'short' })}</Text>
-                <Text style={styles.dateDay}>{new Date(e.starts_at).getDate()}</Text>
-              </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={styles.itemTitle}>{e.title}</Text>
-                <Muted>
-                  {formatTime(e.starts_at)}
-                  {e.location ? ` at ${e.location}` : ''}
-                </Muted>
-                <Muted>{total ? `${peso(total)} spent` : 'Tap to add an expense for this event'}</Muted>
-              </View>
-            </Card>
-          </Pressable>
-        );
-      })}
+      {active.length === 0 ? (
+        <EmptyState icon="people-outline" title="No people yet">
+          Add everyone sharing this budget. Invite them by username so they see it on their phone.
+        </EmptyState>
+      ) : (
+        <View className="flex-row flex-wrap gap-2">
+          {active.map((m) => {
+            const status = inviteStatus(m);
+            const isMe = m.id === meMember?.id;
+            const owner = m.id === ownerMember?.id;
+            const badge: { icon: IconName; color: string; label: string } | null = isMe
+              ? { icon: 'person-circle', color: colors.remaining, label: 'you' }
+              : status === 'joined'
+                ? { icon: 'checkmark-circle', color: colors.remaining, label: 'joined' }
+                : status === 'pending'
+                  ? { icon: 'time-outline', color: colors.muted, label: 'invite pending' }
+                  : null;
+            return (
+              <Pressable
+                key={m.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${m.name}${owner ? ', owner' : ''}${badge ? `, ${badge.label}` : ''}, ${peso(usedBy.get(m.id) ?? 0)} share`}
+                accessibilityHint="Shows their share and invite, and lets you remove them."
+                accessibilityActions={[{ name: 'delete', label: 'Remove' }]}
+                onAccessibilityAction={onDelete(() => confirmRemoveMember(m))}
+                onPress={() => openPerson(m.id)}
+                className="min-h-11 flex-row items-center gap-2 rounded-full bg-card py-1.5 pl-1.5 pr-4 active:opacity-70"
+              >
+                <Avatar name={m.name} color={colorOf.get(m.id) ?? colors.track} uri={mediaUrl(m.joined_avatar)} size={30} />
+                <Text className="text-sm font-medium text-foreground">{isMe ? `${m.name} (you)` : m.name}</Text>
+                {owner && <Text className="text-xs font-semibold text-remaining">Owner</Text>}
+                {badge && !isMe && !owner && <Ionicons name={badge.icon} size={16} color={badge.color} />}
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+      {!ownerMember && group.owner_username && !isOwner && (
+        <Muted>Owner: @{group.owner_username} · not part of the split</Muted>
+      )}
+      {active.length > 0 && <Muted>Tap a person to see their share or invite them.</Muted>}
 
       <SectionTitle>Expenses</SectionTitle>
-      {expenses.length === 0 && <Muted>No expenses yet. Add the first one, like printables or snacks.</Muted>}
-      {expenses.map((x) => (
-        <Pressable
-          key={x.id}
-          onLongPress={() =>
-            Alert.alert(`Delete “${x.name}”?`, `${peso(x.amount_cents)} goes back to the credit limit.`, [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Delete', style: 'destructive', onPress: () => deleteExpense(x.id) },
-            ])
-          }
-        >
-          <Card style={{ gap: space(2) }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: space(3) }}>
-              <Text style={[styles.itemTitle, { flexShrink: 1 }]}>{x.name}</Text>
-              <Money cents={x.amount_cents} />
-            </View>
-            <Muted>
-              {formatDay(x.spent_at)}
-              {eventTitle(x.event_id) ? `, ${eventTitle(x.event_id)}` : ''}
-            </Muted>
-            <View style={styles.chips}>
-              {x.splits.map((s) => (
-                <View key={s.member_id} style={styles.shareChip}>
-                  <View style={[styles.dot, { backgroundColor: colorOf.get(s.member_id) ?? colors.muted }]} />
-                  <Text style={styles.shareText}>
-                    {nameOf(s.member_id)} {peso(s.amount_cents)}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </Card>
-        </Pressable>
-      ))}
-      {expenses.length > 0 && <Muted>Press and hold an expense to delete it.</Muted>}
+      {expenses.length === 0 ? (
+        <EmptyState icon="receipt-outline" title="No expenses yet">
+          Add the first one, like printables or snacks.
+        </EmptyState>
+      ) : (
+        <>
+          <ListCard>
+            {expenses.slice(0, PREVIEW_EXPENSES).map((x, i) => (
+              <ExpenseRow key={x.id} expense={x} first={i === 0} people={people} />
+            ))}
+          </ListCard>
+          <Button
+            title={`See all ${expenses.length} expense${expenses.length === 1 ? '' : 's'}`}
+            icon="receipt-outline"
+            variant="secondary"
+            onPress={() => router.navigate({ pathname: '/expenses', params: { group: id } })}
+          />
+        </>
+      )}
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  remaining: { fontSize: 36, fontWeight: '800', color: colors.remaining, letterSpacing: -0.5 },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: space(2) },
-  legendName: { flex: 1, color: colors.ink, fontSize: 14 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  link: { color: colors.remaining, fontWeight: '600', fontSize: 15 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space(2),
-    backgroundColor: colors.surface,
-    borderColor: colors.line,
-    borderWidth: 1,
-    borderRadius: radius.pill,
-    paddingVertical: space(2),
-    paddingHorizontal: space(3),
-  },
-  shareChip: { flexDirection: 'row', alignItems: 'center', gap: space(1.5) },
-  shareText: { color: colors.muted, fontSize: 13, fontVariant: ['tabular-nums'] },
-  itemTitle: { fontSize: 16, fontWeight: '600', color: colors.ink },
-  eventCard: { flexDirection: 'row', alignItems: 'center', gap: space(4) },
-  dateBlock: {
-    width: 52,
-    alignItems: 'center',
-    borderRadius: radius.control,
-    borderWidth: 1.5,
-    borderColor: colors.ink,
-    paddingVertical: space(1.5),
-  },
-  dateMonth: { fontSize: 12, color: colors.muted },
-  dateDay: { fontSize: 22, fontWeight: '800', color: colors.ink },
-});

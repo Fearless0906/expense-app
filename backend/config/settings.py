@@ -121,6 +121,10 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Uploaded files (profile photos). Served by Django in development only; see config/urls.py.
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
@@ -138,3 +142,20 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
 }
+
+
+# Email (password reset codes). Django 6.1 configures mail through MAILERS (above).
+# Development: the console backend prints each email in the runserver terminal.
+# Production: set DJANGO_EMAIL_HOST (and the other DJANGO_EMAIL_* vars) to send real email.
+if os.environ.get("DJANGO_EMAIL_HOST"):
+    MAILERS["default"] = {
+        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "OPTIONS": {
+            "host": os.environ["DJANGO_EMAIL_HOST"],
+            "port": int(os.environ.get("DJANGO_EMAIL_PORT", "587")),
+            "username": os.environ.get("DJANGO_EMAIL_HOST_USER", ""),
+            "password": os.environ.get("DJANGO_EMAIL_HOST_PASSWORD", ""),
+            "use_tls": os.environ.get("DJANGO_EMAIL_USE_TLS", "1") == "1",
+        },
+    }
+DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "Hati <no-reply@hati.local>")

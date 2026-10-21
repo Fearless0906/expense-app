@@ -8,11 +8,14 @@ export const TABLES: Table[] = ['groups', 'members', 'events', 'expenses'];
 
 /** Columns shared with the server. Must match FIELDS in backend/expenses/sync.py (plus id). */
 export const COLUMNS: Record<Table, string[]> = {
-  groups: ['id', 'name', 'credit_limit_cents', 'currency', 'deleted'],
-  members: ['id', 'group_id', 'name', 'deleted'],
+  groups: ['id', 'name', 'credit_limit_cents', 'currency', 'deleted', 'owner_username'],
+  members: ['id', 'group_id', 'name', 'invite_username', 'deleted', 'joined_username', 'joined_avatar'],
   events: ['id', 'group_id', 'title', 'starts_at', 'ends_at', 'location', 'notes', 'deleted'],
-  expenses: ['id', 'group_id', 'event_id', 'name', 'amount_cents', 'spent_at', 'splits', 'deleted'],
+  expenses: ['id', 'group_id', 'event_id', 'name', 'amount_cents', 'spent_at', 'due_at', 'splits', 'deleted'],
 };
+
+/** Columns the server sends on pull but never accepts on push (READ_ONLY in sync.py). */
+export const PULL_ONLY = new Set(['owner_username', 'joined_username', 'joined_avatar']);
 
 // Every synced table also has two local-only columns:
 //   dirty      1 = changed on this phone and not pushed yet
@@ -59,6 +62,40 @@ const MIGRATIONS: string[] = [
   CREATE INDEX expenses_group ON expenses (group_id, spent_at);
   CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT);
   `,
+  // 2: invites. Forget last_pulled_at so the next pull re-sends existing rows with the new columns.
+  `
+  ALTER TABLE groups ADD COLUMN owner_username TEXT;
+  ALTER TABLE members ADD COLUMN invite_username TEXT NOT NULL DEFAULT '';
+  ALTER TABLE members ADD COLUMN joined_username TEXT;
+  DELETE FROM meta WHERE key = 'last_pulled_at';
+  `,
+  // 3: due dates on expenses (older ones have none).
+  `
+  ALTER TABLE expenses ADD COLUMN due_at TEXT;
+  `,
+  // 4: profile photos of the people who joined. Re-pull once so existing rows get them.
+  `
+  ALTER TABLE members ADD COLUMN joined_avatar TEXT;
+  DELETE FROM meta WHERE key = 'last_pulled_at';
+  `,
+  // 5: events no longer need a budget (personal events have group_id NULL).
+  `
+  CREATE TABLE events_new (
+    id TEXT PRIMARY KEY NOT NULL,
+    group_id TEXT,
+    title TEXT NOT NULL,
+    starts_at TEXT NOT NULL,
+    ends_at TEXT,
+    location TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',${SYNC_COLS}
+  );
+  INSERT INTO events_new (id, group_id, title, starts_at, ends_at, location, notes, deleted, dirty, local_rev)
+    SELECT id, group_id, title, starts_at, ends_at, location, notes, deleted, dirty, local_rev FROM events;
+  DROP TABLE events;
+  ALTER TABLE events_new RENAME TO events;
+  CREATE INDEX events_group ON events (group_id, starts_at);
+  CREATE INDEX events_start ON events (starts_at);
+  `,
 ];
 
 let migrating: Promise<void> | null = null;
@@ -93,6 +130,16 @@ export function serialWrite<T>(task: () => Promise<T>): Promise<T> {
 export async function getMeta(key: string): Promise<string | null> {
   const row = await db.getFirstAsync<{ value: string | null }>('SELECT value FROM meta WHERE key = ?', key);
   return row?.value ?? null;
+}
+
+export function setMeta(key: string, value: string): Promise<void> {
+  return serialWrite(async () => {
+    await db.runAsync(
+      'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      key,
+      value,
+    );
+  });
 }
 
 /** Wipes everything on this phone (used on sign out). */

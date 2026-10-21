@@ -39,7 +39,11 @@ class Member(SyncModel):
 
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="members")
     name = models.CharField(max_length=120)
-    # Optional: link to an account so that person can sync this group on their phone too.
+    # Invite: the username of the account this person should be. It stays pending until that
+    # user accepts (POST /api/members/<id>/join/), which sets `user` and clears this.
+    invite_username = models.CharField(max_length=150, blank=True, default="")
+    # Linked account: that user can sync this group on their phone and sees their own share.
+    # Only the server sets it (on accept), never a push.
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -53,7 +57,15 @@ class Member(SyncModel):
 
 
 class Event(SyncModel):
-    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="events")
+    """Something on the schedule. New events are personal (no group, only `owner` sees them);
+    older ones may belong to a group and are shared with its people."""
+
+    group = models.ForeignKey(
+        Group, null=True, blank=True, on_delete=models.CASCADE, related_name="events"
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="events"
+    )
     title = models.CharField(max_length=200)
     starts_at = models.DateTimeField()
     ends_at = models.DateTimeField(null=True, blank=True)
@@ -75,8 +87,12 @@ class Expense(SyncModel):
     name = models.CharField(max_length=200)
     amount_cents = models.BigIntegerField()
     spent_at = models.DateTimeField()
+    # When the people involved should have paid their shares. Optional; older expenses have none.
+    due_at = models.DateTimeField(null=True, blank=True)
     # Who was involved and their share, e.g.
     # [{"member_id": "<uuid>", "weight": 1, "amount_cents": 16667}, ...]
+    # With "fixed": true on every entry, the amounts were typed in by hand and are kept as is
+    # (they must add up to amount_cents); otherwise the server splits by weight.
     # Kept inside the expense (not a separate table) so an expense and its split
     # always sync together as one record and can never get out of step.
     splits = models.JSONField(default=list, blank=True)
@@ -86,3 +102,34 @@ class Expense(SyncModel):
 
     def __str__(self):
         return f"{self.name} ({self.amount_cents / 100:.2f})"
+
+
+class PasswordResetCode(models.Model):
+    """A 6-digit code emailed for "Forgot password". Only a hash is stored.
+
+    Valid for CODE_TTL, for MAX_ATTEMPTS wrong tries, and once (see expenses/accounts.py).
+    """
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="reset_codes")
+    code_hash = models.CharField(max_length=128)
+    created_at = models.DateTimeField(auto_now_add=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    used = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+def _avatar_path(profile, filename):
+    # A fresh name for every upload, so phones never show an old cached photo.
+    import uuid as _uuid
+
+    return f"avatars/{profile.user_id}-{_uuid.uuid4().hex[:12]}.jpg"
+
+
+class Profile(models.Model):
+    """Per-account extras. `avatar` is the photo shown instead of initials, also to the
+    people in shared budgets (sent on pull as members.joined_avatar)."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
+    avatar = models.ImageField(upload_to=_avatar_path, blank=True)

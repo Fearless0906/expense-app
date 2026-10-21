@@ -21,6 +21,11 @@ export function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/** "Due today" / "Due Oct 25, 2026" for an expense's due date. */
+export function dueLabel(iso: string): string {
+  return new Date(iso).toDateString() === new Date().toDateString() ? 'Due today' : `Due ${formatDay(iso)}`;
+}
+
 export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
 }

@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
  * Where Django runs. On a real phone this must be your PC's LAN IP, not localhost.
  * Set it in mobile/.env:  EXPO_PUBLIC_API_URL=http://192.168.1.10:8000
  */
-export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.1.10:8000').replace(/\/$/, '');
+export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.2.110:8000').replace(/\/$/, '');
 
 const TOKEN_KEY = 'auth_token';
 let cachedToken: string | null | undefined;
@@ -28,7 +28,7 @@ export class ApiError extends Error {
   }
 }
 
-type Options = { method?: 'GET' | 'POST'; body?: unknown; auth?: boolean };
+type Options = { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown; auth?: boolean };
 
 export async function api<T>(path: string, { method = 'GET', body, auth = true }: Options = {}): Promise<T> {
   const token = auth ? await getToken() : null;

@@ -5,3 +5,6 @@ db.sqlite3
 .env
 node_modules/
 .expo/
+
+# Uploaded profile photos (development)
+backend/media/

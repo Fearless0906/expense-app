@@ -12,7 +12,7 @@ import { AppState } from 'react-native';
 
 import { api, ApiError, getToken } from './api';
 import { notifyChanged } from './changes';
-import { COLUMNS, db, getMeta, serialWrite, Table, TABLES } from './db';
+import { COLUMNS, db, getMeta, PULL_ONLY, serialWrite, Table, TABLES } from './db';
 
 type Row = Record<string, unknown>;
 type Bind = string | number | null;
@@ -47,7 +47,7 @@ export function useSyncState(): SyncState {
 
 function toServer(table: Table, row: Row): Row {
   const out: Row = {};
-  for (const c of COLUMNS[table]) out[c] = row[c];
+  for (const c of COLUMNS[table]) if (!PULL_ONLY.has(c)) out[c] = row[c];
   out.deleted = row.deleted === 1;
   if (table === 'expenses') out.splits = JSON.parse(String(row.splits ?? '[]'));
   return out;
@@ -58,6 +58,7 @@ function toLocal(table: Table, row: Row): Bind[] {
     const v = row[c];
     if (c === 'deleted') return v ? 1 : 0;
     if (c === 'splits') return JSON.stringify(v ?? []);
+    if (c === 'invite_username') return String(v ?? '');
     if (v === undefined || v === null) return null;
     return typeof v === 'number' ? v : String(v);
   });
@@ -90,7 +91,13 @@ async function push() {
 async function pull() {
   const last = await getMeta('last_pulled_at');
   const query = last ? `?last_pulled_at=${encodeURIComponent(last)}` : '';
-  const res = await api<{ changes: Partial<Record<Table, Row[]>>; timestamp: string }>(`/api/sync/pull/${query}`);
+  const res = await api<{
+    changes: Partial<Record<Table, Row[]>>;
+    timestamp: string;
+    group_ids?: string[];
+    username?: string;
+    avatar?: string;
+  }>(`/api/sync/pull/${query}`);
 
   await serialWrite(() =>
     db.withExclusiveTransactionAsync(async (txn) => {
@@ -111,11 +118,24 @@ async function pull() {
           await stmt.finalizeAsync();
         }
       }
-      await txn.runAsync(
-        'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-        'last_pulled_at',
-        res.timestamp,
-      );
+      if (Array.isArray(res.group_ids)) {
+        // Budgets this account can't see any more (e.g. removed from one): drop the local copy.
+        // This only clears this phone's cache; rows not pushed yet stay, so no local work is lost.
+        const keep = JSON.stringify(res.group_ids);
+        await txn.runAsync('DELETE FROM groups WHERE dirty = 0 AND id NOT IN (SELECT value FROM json_each(?))', keep);
+        for (const t of ['members', 'events', 'expenses'] as const) {
+          // Personal events have no budget (group_id NULL), so they're never pruned here.
+          await txn.runAsync(
+            `DELETE FROM ${t} WHERE dirty = 0 AND group_id IS NOT NULL AND group_id NOT IN (SELECT value FROM json_each(?))`,
+            keep,
+          );
+        }
+      }
+      const upsertMeta =
+        'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value';
+      if (res.username) await txn.runAsync(upsertMeta, 'username', res.username);
+      if (res.avatar !== undefined) await txn.runAsync(upsertMeta, 'avatar', res.avatar);
+      await txn.runAsync(upsertMeta, 'last_pulled_at', res.timestamp);
     }),
   );
 }

@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * React Native Reusables (shadcn) theme variables, filled with Hati's palette.
+ * src/ui/theme.ts keeps the same colors as hex for icons and navigation options; change both.
+ * Light only (app.json userInterfaceStyle "light").
+ */
+@layer base {
+  :root {
+    --background: 135 12.5% 93.7%; /* sage paper #EDF1EE */
+    --foreground: 157.9 26% 14.3%; /* deep forest #1B2E27 */
+    --card: 0 0% 100%;
+    --card-foreground: 157.9 26% 14.3%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 157.9 26% 14.3%;
+    --primary: 157.9 26% 14.3%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 140 14.3% 95.9%; /* #F3F6F4 */
+    --secondary-foreground: 157.9 26% 14.3%;
+    --muted: 140 14.3% 95.9%;
+    --muted-foreground: 155.3 8.3% 40.2%; /* #5E6F68, 4.7:1 on background */
+    --accent: 148.2 39.5% 91.6%; /* #E1F2E9 */
+    --accent-foreground: 157.9 26% 14.3%;
+    --destructive: 3.2 71.3% 41%; /* #B3261E */
+    --destructive-foreground: 0 0% 100%;
+    --border: 142.5 13.3% 88.2%; /* #DDE5E0 */
+    --input: 142.5 13.3% 88.2%;
+    --ring: 164.9 78.1% 26.9%; /* #0F7A5F */
+    --radius: 14px;
+    --chart-1: 39.1 87.4% 59.4%;
+    --chart-2: 209.7 81.8% 72%;
+    --chart-3: 339.6 82% 78.2%;
+    --chart-4: 86.6 57.6% 63.9%;
+    --chart-5: 255.8 83.3% 81.2%;
+  }
+}

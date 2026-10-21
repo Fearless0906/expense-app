@@ -10,7 +10,7 @@ class GroupAdmin(admin.ModelAdmin):
 
 @admin.register(Member)
 class MemberAdmin(admin.ModelAdmin):
-    list_display = ("name", "group", "user", "deleted")
+    list_display = ("name", "group", "user", "invite_username", "deleted")
     list_filter = ("group",)
 
 
