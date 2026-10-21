@@ -86,6 +86,7 @@ mobile/
 
 | Method | Path | Body / query |
 | --- | --- | --- |
+| GET | `/api/` | public: `{status: "ok", endpoints}`, a quick "is the server up?" check (`/` redirects here) |
 | POST | `/api/auth/register/` | `{username, email, password}` → `{token, username}` |
 | POST | `/api/auth/login/` | `{identifier, password}` (username or email) → `{token, username}` |
 | POST | `/api/auth/password/forgot/` | `{identifier}` → emails a 6-digit code (same answer either way) |

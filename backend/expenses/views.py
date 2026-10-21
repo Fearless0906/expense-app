@@ -11,6 +11,41 @@ from . import accounts, invites
 from .sync import SyncError, accessible_groups, group_summary, normalize_username, pull, push
 
 
+ENDPOINTS = {
+    "auth": [
+        "POST auth/register/",
+        "POST auth/login/",
+        "POST auth/password/forgot/",
+        "POST auth/password/reset/",
+        "POST auth/password/change/",
+        "GET|POST auth/me/",
+        "POST|DELETE auth/avatar/",
+        "POST auth/sessions/others/",
+        "POST auth/delete/",
+    ],
+    "sync": ["POST sync/push/", "GET sync/pull/?last_pulled_at=<iso>"],
+    "budgets": [
+        "GET groups/<id>/summary/",
+        "GET users/exists/?username=<name>",
+        "GET invitations/",
+        "POST members/<id>/join/",
+        "POST members/<id>/decline/",
+    ],
+}
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def api_root(request):
+    """GET /api/: shows the server is up and lists the endpoints (paths are under /api/)."""
+    return Response({
+        "name": "Hati API",
+        "status": "ok",
+        "auth": "Send 'Authorization: Token <token>' (from register or login) to every endpoint except register, login and password reset.",
+        "endpoints": ENDPOINTS,
+    })
+
+
 def _account_call(fn, *args, status_ok=200):
     """Runs a sign-in style call and answers {token, username} (the app needs the username even
     when someone signed in with their email)."""

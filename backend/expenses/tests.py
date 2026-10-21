@@ -455,3 +455,16 @@ class PersonalEventTests(SyncFixtures):
         self.seed()
         pulled = self.client.get("/api/sync/pull/").data["changes"]["events"]
         self.assertEqual([str(e["group_id"]) for e in pulled], [self.gid])
+
+
+class ApiRootTests(TestCase):
+    def test_api_root_is_public_and_lists_endpoints(self):
+        r = APIClient().get("/api/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["status"], "ok")
+        self.assertIn("POST auth/login/", r.data["endpoints"]["auth"])
+
+    def test_home_redirects_to_api(self):
+        r = APIClient().get("/")
+        self.assertEqual((r.status_code, r["Location"]), (302, "/api/"))
+

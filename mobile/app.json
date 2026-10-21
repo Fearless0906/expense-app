@@ -16,7 +16,11 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.kisyohieuuu.hatiexpenses"
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -35,6 +39,12 @@
         }
       ]
     ],
-    "scheme": "hati"
+    "scheme": "hati",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0ce78908-3525-4759-b2bd-2db63d154ce1"
+      }
+    }
   }
 }
