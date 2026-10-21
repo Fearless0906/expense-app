@@ -29,6 +29,11 @@ DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 # Add your PC's LAN IP (for testing on a phone) or your server's domain.
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*" if DEBUG else "").split(",")
 
+# Behind an HTTPS proxy (PythonAnywhere, Railway, nginx): trust its "this was https" header, so
+# Django knows requests are secure and the admin's CSRF check accepts https:// origins.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CSRF_TRUSTED_ORIGINS = [f"https://{h}" for h in ALLOWED_HOSTS if h and h != "*"]
+
 
 # Application definition
 
@@ -120,6 +125,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+# `collectstatic` copies the admin's CSS/JS here; the web server serves it at /static/.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Uploaded files (profile photos). Served by Django in development only; see config/urls.py.
 MEDIA_URL = '/media/'
